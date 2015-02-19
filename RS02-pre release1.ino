@@ -1,5 +1,5 @@
 /*
-The Rad-Fi Patchable Synthesizer RS01
+The Rad-Fi Glitch Delay RD-02
 http://bleeplabs.com/store/the-rad-fi-system/ 
 
 This works well but needs some work by the time the Rad-Fis ship
@@ -7,10 +7,11 @@ This works well but needs some work by the time the Rad-Fis ship
 
 Todo:
 commenting and moding instructions
-PWM rate
+freeze volume
 general loop speedup
 
 */
+
 #include <TimerOne.h>
 #include "digitalIOPerformance.h"
 

@@ -1,16 +1,19 @@
-#include <avr/pgmspace.h>
+#include <TimerOne.h>
 
-//#define DIGITALIO_NO_MIX_ANALOGWRITE
-#include "digitalIOPerformance.h"
 
 #define DLY_BUF_LEN 1030
+byte dly_buffer[DLY_BUF_LEN]={};
 
-byte dly_buffer[DLY_BUF_LEN];
 
 
-unsigned long d,t,prev,prev2,prevserial;
+unsigned long accumulator[3]={};
+unsigned long increment[3]={};
+uint16_t out[3]={};
+uint16_t freq[3]={};
+uint16_t waveindex[3]={};
+
+unsigned long d,t,prev,prev2;
 byte tickLED,tick2,pot_tick;
-int in0,in1,amin;
 int dds_rate=50;
 long dds_tune;
 byte dly_tick,fast_pot_tick,slow_sample;
@@ -24,114 +27,105 @@ long seq_rate,seq_step_len;
 int seq_stop,p1,dly_buf_in,p2,p2_inv;
 int dly_mix,dly_mix_2,fpot1,mode_p,seq_rate_p;
 byte mode,seq_on,seq_amp_out;
- int amp_lerp,fb_amt,fb_amt_inv; 
+int amp_lerp,fb_amt,fb_amt_inv; 
 byte crush_amt;
 int  dly_led_c;
-int blink_inv,osc_rate;
-byte tick4,reverse,freeze,noisecomb,lerp_tick;
+int blink_inv;
+byte tick4;
 int previnput[2]={};
-int blinkc,blinklatch,blc;
+int in1,in0,in3;
+byte AM_enable;
+int dig_in,out_mix;
+int mult_mix,lerp_tick,amin;
+int dout,fout;
+byte fb_mode,freeze,lofi_tick,lofi,reverse;
+
+void setup(void)
+{
+
+  pinMode(19, OUTPUT);  
+  pinMode(12, OUTPUT);
+    pinMode(13, OUTPUT);
+
+  pinMode(5, OUTPUT);
+
+  pinMode(6, INPUT);
+  digitalWrite(6, HIGH);
+
+  pinMode(2, INPUT);
+  digitalWrite(2, HIGH);
+
+  pinMode(4, INPUT);   
+  digitalWrite(4,HIGH);
+
+  pinMode(3, INPUT);
+  digitalWrite(3,HIGH);
+
+  pinMode(7, INPUT);
+  digitalWrite(7,HIGH);
 
 
-void setup() {
+  pinMode(8, INPUT);
+  digitalWrite(8,HIGH);
 
-#define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
-#define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
+  TCCR0B = TCCR0B & 0b11111000 | 0x01 ; //timer 0 62500Hz
+  //TCCR1B = TCCR1B & 0b11111000 | 0x01 ; //timer 1 62500Hz
 
- 
- sbi (TIMSK1,TOIE1);
- 
-  sbi (TCCR1B, CS20);
-  cbi (TCCR1B, CS21);
-  cbi (TCCR1B, CS22);
+
+//http://www.microsmart.co.za/technical/2014/03/01/advanced-arduino-adc/
+  const unsigned char PS_16 = (1 << ADPS2);
+  const unsigned char PS_32 = (1 << ADPS2) | (1 << ADPS0);
+  const unsigned char PS_64 = (1 << ADPS2) | (1 << ADPS1);
+  const unsigned char PS_128 = (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
+
+  ADCSRA &= ~PS_128;
+  ADCSRA |=PS_16;
+
   
-  cbi (TCCR1A, COM2A0);  // clear Compare Match
-  sbi (TCCR1A, COM2A1);
-  sbi (TCCR1A, COM2B1);
-  
-  sbi (TCCR1A, WGM20);  // Mode 1  / Phase Correct PWM
-  cbi (TCCR1A, WGM21);
-  cbi (TCCR1B, WGM22);
+  dds_rate=75;
+  dds_tune=1/(dds_rate*.000001);
 
-  sbi (TCCR2B, CS20);
-  cbi (TCCR2B, CS21);
-  cbi (TCCR2B, CS22);
-  
-  cbi (TCCR2A, COM2A0);  // clear Compare Match
-  sbi (TCCR2A, COM2A1);
-  sbi (TCCR2A, COM2B1);
-  
-  //sbi (TCCR2A, WGM20);  // Mode 1  / Phase Correct PWM
-  //cbi (TCCR2A, WGM21);
- // cbi (TCCR2B, WGM22);
-  
-  cbi(ADCSRA,ADPS2) ;
-  sbi(ADCSRA,ADPS1) ;
-  cbi(ADCSRA,ADPS0) ;
+  DDS();
 
-  pinMode(3, OUTPUT);
-  pinMode(4, OUTPUT);
+  Timer1.initialize(dds_rate);
+  Timer1.attachInterrupt(DDS); 
 
-  pinMode(5, INPUT_PULLUP);
-
-  pinMode(7, INPUT_PULLUP);
-  pinMode(8, INPUT_PULLUP);
-  
-  pinMode(9, OUTPUT);
-
-  pinMode(11, INPUT_PULLUP);
-  pinMode(12, INPUT_PULLUP);
-  pinMode(13, INPUT_PULLUP);
-
-
-
-  //
-  Serial.begin(9600); 
-
-  delay(100);
-
-
+  Serial.begin(9600);
 }
 
-//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-int16_t comb;
-ISR(TIMER1_OVF_vect)
-{ 
-  //digitalWrite(12,1);
 
-  pot_tick++;
-  if(pot_tick>3){
-    pot_tick=0;
+int ledState = LOW;
+volatile unsigned long blinkCount = 0; // use volatile for shared variables
+
+
+
+void DDS()
+{
+
+  PORTB |= _BV(PORTB5);
+
+
+
+  pot_tick=!pot_tick;
+
+  if(pot_tick==1){
+    in0 =analogRead(A0);
+
   }
 
   if(pot_tick==0){
-    amin =(analogRead(A5)>>1); 
-  }
-  if(pot_tick==1){
-    in0 =analogRead(A1);
-
+    in1 =analogRead(A1)>>2;  
   }
 
-  if(pot_tick==2){
-    amin =(analogRead(A5)>>1); 
-  }
+volatile byte am = (digitalRead(6));
 
-  if(pot_tick==3){
-      in1 =analogRead(A0)>>2;  
-    }
+volatile int a3 =(analogRead(A3)>>2)-127; 
+volatile int amx = a3*am;
+volatile byte dly_in = amx+127;
 
 
-  amin-=255; 
-
-  if (amin<-255) {
-    amin=-255;
-}
-
-if (amin>255) {
-  amin=255;
-}
-
-byte ttt=feedback_delay(amin>>1);
+volatile byte dly_outf=feedback_delay(dly_in);
+analogWrite(5, dly_outf); 
 
 lerp_tick++;
 if (lerp_tick>6){
@@ -145,33 +139,20 @@ if (lerp_tick>6){
  lerp_tick=0;
 }
 
-  OCR1A=(ttt);  //9
-  //OCR1B=(comb);       //10
 
 
-//  digitalWrite(12,0);
+PORTB &= ~_BV(PORTB5);
+
 
 
 }
 
+int blinkc,blinklatch,blc;
 
-void loop() {
+void loop(void){
 
-  if ((millis()-prevserial)>400){
-    prevserial=millis();
-
-    Serial.println();       
-    Serial.println(lerp_dly);       
-    Serial.println(freeRam()); 
-    Serial.println(); 
-
-          
-  }
-
-
-
-  freeze = (digitalRead(13));
-  reverse = (digitalRead(12));
+  freeze = (digitalRead(8));
+  reverse = (digitalRead(7));
 
 dly_time=(readchange(0,in0))+1;    // update the delay time value. readchange info bleow
 
@@ -205,34 +186,32 @@ if (in1>=146){
 blink_inv=((dly_time-DLY_BUF_LEN)*-1);
 blinkc++;
 if (blinkc>blink_inv){
-  blc=0;
-  blinklatch=1;
-  blinkc=0;
+    tick4=!tick4;
+    digitalWrite(19,tick4);   // blinks with the delay rate
+    blinkc=0;
 }
 
-if(blinklatch==1){
-  if (blc<100){
-    blc++;
-    digitalWrite(3, HIGH);
-  }
-  if (blc>=100){
-    digitalWrite(3, LOW);
-    blinklatch=0;
-  }
-
-}
-
-byte bc3 =! digitalRead(7);  
-byte bc4 =! digitalRead(8);
+byte bc3 =! digitalRead(3);  
+byte bc4 =! digitalRead(4);
 crush_amt=(bc3<<1)|bc4;
 
+//   Serial.println(prev|dly_time);
 
 
+  //Serial.print("blinkCount = ");
+  if ((millis()-prev)>5000){
+    prev=millis();
+    
 
- 
+
+ //   Serial.println(waveindex[0]);
+   Serial.println(fout);
+
+  //  Serial.print(fb_tmp); Serial.print(" ");  Serial.println(fb_tmp_inv);
+   // Serial.println();
+ }
+
 }
-
-
 
 byte feedback_delay(int dly_input){
 
@@ -296,10 +275,10 @@ if (freeze==1){
 
 
   fb_in = ((feedback-127)*fb_tmp)>>8;
-  in_in = ((dly_input)*fb_tmp_inv)>>8;
+  in_in = ((dly_input-127)*fb_tmp_inv)>>8;
 
-  dly_mix_2=(((dly_input)*125)>>8);
-  dly_mix=((dly_out-127)*(125))>>8;
+  dly_mix_2=(((dly_input-127)*100)>>8);
+  dly_mix=((dly_out-127)*(255-100))>>8;
   in_mix =  (fb_in+in_in)+127;
 
   if (in_mix>=253){
@@ -367,17 +346,4 @@ int readchange(byte n, int input){
 
   return output;
 }
-
-
-
-
-
-
-int freeRam () {
-  extern int __heap_start, *__brkval; 
-  int v; 
-  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
-}
-
-
 

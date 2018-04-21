@@ -1,5 +1,5 @@
 #include <TimerOne.h>
-#include "digitalIOPerformance.h"
+// #include "digitalIOPerformance.h" no longer needed after Arduino 1.6
 
 
 #define DLY_BUF_LEN 1700
@@ -66,7 +66,7 @@ void setup(void)
   ADCSRA |=PS_16;
 
 
-  Timer1.initialize(70); //65 =15.4 70=14.29 //75=13.33
+  Timer1.initialize(70); //65 microseconds =15.4 kHz 70=14.29 //75=13.33
   Timer1.attachInterrupt(DDS); 
 
   //Serial.begin(9600); // DLY_BUF_LEN needs to be loweres to 1200 is serial is on. 
